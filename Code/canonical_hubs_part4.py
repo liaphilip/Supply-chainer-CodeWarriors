@@ -77,7 +77,7 @@ RAW4 = [
 ("RAIL-PRINCE_RUPERT","Prince Rupert Rail Terminal",["CN Prince Rupert"],"rail_hub",["rail","road"],54.3000,-130.3000,"Canada",7,"Deep-water rail-port interface for Asian trade to US Midwest"),
 ("PORT-HALIFAX","Port of Halifax",["Halifax"],"port",["sea","road","rail"],44.6488,-63.5752,"Canada",7,"Atlantic Canada's primary container and automotive port"),
 ("RAIL-WINNIPEG","Winnipeg CentrePort Canada",["Winnipeg","CentrePort"],"rail_hub",["rail","road","air"],49.8951,-97.1384,"Canada",7,"North America's largest tri-modal inland port"),
-("HUB-CHICAGO","Elk Grove Village Logistics",["Elk Grove","ORD Logistics"],"distribution_hub",["road","rail","air"],42.0039,-87.9973,"USA",8,"US Midwest primary data center and e-commerce cluster"),
+("HUB-ELK-GROVE","Elk Grove Village Logistics",["Elk Grove","ORD Logistics"],"distribution_hub",["road","rail","air"],42.0039,-87.9973,"USA",8,"US Midwest primary data center and e-commerce cluster"),
 ("PORT-CHARLESTON","Port of Charleston",["Charleston"],"port",["sea","road","rail"],32.7765,-79.9309,"USA",8,"US Southeast high-efficiency deep-water port"),
 ]
 

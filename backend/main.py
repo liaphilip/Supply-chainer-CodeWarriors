@@ -1,4 +1,4 @@
-from fastapi import FastAPI, WebSocket, Query
+from fastapi import FastAPI,HTTPException, WebSocket, Query
 from pydantic import BaseModel
 from typing import Optional, List
 import asyncio
@@ -152,6 +152,11 @@ def get_cities():
 
 @app.post("/api/recommend")
 def recommend_routes(req: RecommendRequest):
+    if req.scenario is not None and req.scenario not in scenario_mgr.SCENARIOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid scenario: {req.scenario}"
+        )
     result = recommender.recommend(
         source=req.source,
         destination=req.destination,
