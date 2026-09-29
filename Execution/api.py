@@ -1,16 +1,32 @@
+import sys
+import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 import joblib
 import pandas as pd
-from nlp_engine import SupplyChainNLP
+
+# Add project root to sys.path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+from backend.engine.threat_intelligence import ContrastiveNLPEngine, CARFFilter
 
 app = FastAPI(title="Dynamic Risk API", description="Context-Aware Supply Chain Routing Engine")
 
 print("Booting up AI Models...")
-risk_model = joblib.load('risk_model.pkl')
-encoders = joblib.load('label_encoders.pkl')
-nlp_processor = SupplyChainNLP()
+model_path = os.path.join(os.path.dirname(__file__), 'risk_model.pkl')
+encoder_path = os.path.join(os.path.dirname(__file__), 'label_encoders.pkl')
+
+try:
+    risk_model = joblib.load(model_path)
+    encoders = joblib.load(encoder_path)
+except Exception as e:
+    print(f"[API WARMUP] ML Model Load Error ({e}). Defaulting to NLP/CARF pipeline.")
+    risk_model = None
+    encoders = None
+
+nlp_engine = ContrastiveNLPEngine()
+carf_filter = CARFFilter()
 
 class RouteRequest(BaseModel):
     Leg_Type: str
@@ -18,7 +34,7 @@ class RouteRequest(BaseModel):
     Destination_Node: str
     Transport_Mode: str
     Condition_Flag: str
-    Live_News_Feed: dict 
+    Live_News_Feed: dict
 
 @app.post("/predict_route_risk")
 def predict_risk(request: RouteRequest):
@@ -27,21 +43,27 @@ def predict_risk(request: RouteRequest):
         threat_logs = {}
 
         for loc, live_news in request.Live_News_Feed.items():
-            
-            raw_score = nlp_processor.generate_severity_score(live_news)
-            
-            relevance = nlp_processor.calculate_relevance(
-                news_text=live_news,
-                mode=request.Transport_Mode,
-                origin=request.Origin_Node,
-                destination=request.Destination_Node
+            raw_score = nlp_engine.get_semantic_score(live_news)
+            node_threat = carf_filter.apply_filter(
+                semantic_score=raw_score,
+                news_context=live_news,
+                transport_mode=request.Transport_Mode
             )
-            
-            node_threat = raw_score * relevance
-            threat_logs[loc] = {"news_analyzed": live_news, "calculated_threat": round(node_threat, 3)}
-            
+
+            threat_logs[loc] = {
+                "news_analyzed": live_news,
+                "raw_nlp_score": round(raw_score, 3),
+                "carf_filtered_threat": round(node_threat, 3)
+            }
+
             if node_threat > max_final_threat:
                 max_final_threat = node_threat
+
+        if risk_model is None or encoders is None:
+            raise HTTPException(
+                status_code=500,
+                detail="ML prediction layer is unavailable due to model loading failure."
+            )
 
         data = {
             'Leg_Type': [request.Leg_Type],
@@ -61,6 +83,7 @@ def predict_risk(request: RouteRequest):
 
         prediction = risk_model.predict(df_input)[0]
         final_delay_hours = max(0.0, float(prediction))
+
 
         return {
             "status": "success",

@@ -6,6 +6,7 @@ import json
 import time
 from typing import List, Dict, Any, Optional, Tuple
 import pandas as pd
+import re
 
 # Load Production Artifacts
 MODEL_PATH = "./Execution/risk_model.pkl"
@@ -24,7 +25,7 @@ class ThreatIntelligencePredictor:
         self.model = None
         self.encoders = None
         self.profiles = {}
-        
+
         self.hub_map = {
             "Seattle": "Seattle Port", "Portland": "Portland Terminal", "San Francisco": "San Francisco Port",
             "Los Angeles": "Los Angeles Port", "Salt Lake City": "Salt Lake City Hub", "Denver": "Denver Terminal",
@@ -33,7 +34,7 @@ class ThreatIntelligencePredictor:
             "Miami": "Miami Port", "New York": "New York Port", "Boston": "Boston Terminal",
             "Mumbai": "Mumbai Port", "Kochi": "Kochi Port", "Delhi": "Delhi Air Cargo", "Chennai": "Chennai Port"
         }
-        
+
         if not lazy_load:
             self.warmup()
 
@@ -43,12 +44,12 @@ class ThreatIntelligencePredictor:
         if not os.path.exists(MODEL_PATH) or not os.path.exists(ENCODER_PATH):
             print(f"CRITICAL: Production models missing. Running in deterministic fallback mode.")
             return
-            
+
         # 1. Load ML Core
         self.model = joblib.load(MODEL_PATH)
         self.encoders = joblib.load(ENCODER_PATH)
         self.is_trained = True
-        
+
         # 2. Load Statistically Defensible Calibration Profiles
         if os.path.exists(CALIBRATION_PATH):
             with open(CALIBRATION_PATH, 'r') as f:
@@ -69,8 +70,8 @@ class ThreatIntelligencePredictor:
         if value in classes: return encoder.transform([value])[0]
         return encoder.transform([classes[0]])[0]
 
-    def predict_worst_case_delay(self, origin: str, destination: str, transport_mode: str, 
-                                 leg_type: str = "Global_Freight", condition_flag: str = "Clear", 
+    def predict_worst_case_delay(self, origin: str, destination: str, transport_mode: str,
+                                 leg_type: str = "Global_Freight", condition_flag: str = "Clear",
                                  nlp_score: float = 0.0) -> Dict[str, Any]:
         """
         Stage 4: Multi-Quantile Prediction (p50, p85, p95) with Explainability & Statistical Calibration.
@@ -78,9 +79,9 @@ class ThreatIntelligencePredictor:
         """
         mode_key = transport_mode.lower()
         profile = self.profiles.get(mode_key, {
-            "floor": 2.5, 
-            "cap": 240.0, 
-            "p5_observed": 2.5, 
+            "floor": 2.5,
+            "cap": 240.0,
+            "p5_observed": 2.5,
             "p95_observed": 240.0
         })
         floor = profile.get("floor", profile.get("p5_observed", 2.5))
@@ -109,33 +110,33 @@ class ThreatIntelligencePredictor:
             feat_mode = self._encode_feature(transport_mode, 'Transport_Mode')
             feat_leg = self._encode_feature(leg_type, 'Leg_Type')
             feat_cond = self._encode_feature(condition_flag, 'Condition_Flag')
-            
+
             X_input = pd.DataFrame([{
-                'Leg_Type': feat_leg, 
-                'Origin_Node': feat_origin, 
+                'Leg_Type': feat_leg,
+                'Origin_Node': feat_origin,
                 'Destination_Node': feat_dest,
-                'Transport_Mode': feat_mode, 
-                'Condition_Flag': feat_cond, 
+                'Transport_Mode': feat_mode,
+                'Condition_Flag': feat_cond,
                 'NLP_Severity_Score': nlp_score
             }])
-            
+
             # Baseline without NLP disruption for marginal feature attribution
             X_baseline = pd.DataFrame([{
-                'Leg_Type': feat_leg, 
-                'Origin_Node': feat_origin, 
+                'Leg_Type': feat_leg,
+                'Origin_Node': feat_origin,
                 'Destination_Node': feat_dest,
-                'Transport_Mode': feat_mode, 
-                'Condition_Flag': feat_cond, 
+                'Transport_Mode': feat_mode,
+                'Condition_Flag': feat_cond,
                 'NLP_Severity_Score': 0.0
             }])
 
             # 2. Raw Model Predictions (p85)
             raw_p85 = float(self.model.predict(X_input)[0])
             baseline_friction = float(self.model.predict(X_baseline)[0])
-            
+
             # Marginal impact of NLP disruption signal (Explainability)
             nlp_impact = max(0.0, raw_p85 - baseline_friction)
-            
+
             # 3. Multi-Quantile Extrapolation (Derived from quantile variance & historical distributions)
             # p50 (Median expectation under operational conditions)
             p50_pred = max(floor * 0.8, raw_p85 * 0.58)
@@ -187,7 +188,7 @@ class ThreatIntelligencePredictor:
                 "calibration_reason": reason,
                 "is_defensible": True
             }
-            
+
         except Exception as e:
             print(f"[ML PREDICTOR ERROR]: {e}")
             fallback_val = profile.get("floor", 12.0)
@@ -245,19 +246,22 @@ class CARFFilter:
     """Stage 3: TRUE CARF (Context-Aware Relevance Filter)."""
     def __init__(self):
         self.relevance_map = {
-            "air": ["airport", "flight", "airspace", "aviation", "sky", "terminal"],
-            "sea": ["port", "vessel", "ship", "canal", "ocean", "maritime", "dock"],
-            "rail": ["rail", "track", "locomotive", "station"],
-            "road": ["highway", "truck", "traffic", "bridge", "road", "delivery"]
+            "air": ["airport", "airports", "flight", "flights", "airspace", "aviation", "sky", "terminal", "terminals", "plane", "planes", "aircraft"],
+            "sea": ["port", "ports", "vessel", "vessels", "ship", "ships", "shipping", "canal", "canals", "ocean", "maritime", "dock", "docks", "berth", "berthing"],
+            "rail": ["rail", "rails", "railway", "railways", "railroad", "railroads", "track", "tracks", "locomotive", "locomotives", "station", "stations", "train", "trains"],
+            "road": ["highway", "highways", "truck", "trucks", "trucking", "traffic", "bridge", "bridges", "road", "roads", "delivery", "deliveries", "lane", "lanes"]
         }
 
     def apply_filter(self, semantic_score: float, news_context: str, transport_mode: str) -> float:
         if semantic_score <= 0: return 0.0
-        news_words = news_context.lower().split()
-        if transport_mode == "sea" and not any(kw in news_words for kw in self.relevance_map["sea"]):
+        mode = transport_mode.lower()
+        if mode not in self.relevance_map:
+            return semantic_score
+
+        news_words = set(re.findall(r'\b\w+\b', news_context.lower()))
+        if not any(kw in news_words for kw in self.relevance_map[mode]):
             return 0.0
-        if transport_mode == "air" and not any(kw in news_words for kw in self.relevance_map["air"]):
-            return 0.0
+
         return semantic_score
 
     def max_pool_threats(self, scores: List[float]) -> float:
