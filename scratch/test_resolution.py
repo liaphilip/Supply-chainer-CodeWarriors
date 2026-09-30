@@ -7,6 +7,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from backend.engine.multimodal_network import create_multimodal_network
 from backend.engine.threat_intelligence import ThreatIntelligencePredictor
 from backend.engine.route_recommender import RouteRecommender
+from backend.engine.scenario_manager import ScenarioManager
 
 def test_node_resolution():
     network = create_multimodal_network()
@@ -17,7 +18,14 @@ def test_node_resolution():
             self.weather_states = {}
     
     simulator = SimulatorState()
-    recommender = RouteRecommender(network, predictor, simulator)
+    scenario_mgr = ScenarioManager()
+
+    recommender = RouteRecommender(
+        network,
+        predictor,
+        simulator,
+        scenario_mgr
+    )
     
     print("--- TESTING MODE-AWARE NODE RESOLUTION ---")
     
