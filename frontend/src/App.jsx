@@ -7,23 +7,35 @@ export default function App() {
   const [network, setNetwork] = useState({ nodes: [], edges: [] });
   const [status, setStatus] = useState(null);
   const [currentView, setCurrentView] = useState('recommend');
-  
   useEffect(() => {
-    fetch('/api/network')
-      .then(r => r.json())
-      .then(data => setNetwork(data))
-      .catch(e => console.error(e));
-      
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/ws`;
-    const ws = new WebSocket(wsUrl);
-    ws.onmessage = (event) => {
+  fetch('/api/network')
+    .then(r => r.json())
+    .then(data => setNetwork(data))
+    .catch(e => console.error(e));
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const wsUrl = `${protocol}//${window.location.host}/ws`;
+  const ws = new WebSocket(wsUrl);
+
+  ws.onmessage = (event) => {
+    try {
       const state = JSON.parse(event.data);
       setStatus(state);
-    };
-    
-    return () => ws.close();
-  }, []);
+    } catch (err) {
+      console.warn('Invalid WebSocket message:', err);
+    }
+  };
+
+  ws.onerror = () => {
+    console.warn('Live status connection unavailable');
+  };
+
+  ws.onclose = () => {
+    console.warn('Live status connection closed');
+  };
+
+  return () => ws.close();
+}, []);
 
   if (currentView === 'recommend') {
     return <RouteRecommender onNavigate={setCurrentView} />;

@@ -26,7 +26,7 @@ body {
   background-color: var(--bg-main);
   color: var(--text-main);
   -webkit-font-smoothing: antialiased;
-  overflow: hidden; /* Executive dashboard should fit the screen */
+  overflow-y: auto; /* Executive dashboard should fit the screen */
 }
 
 /* Executive Dashboard Grid */

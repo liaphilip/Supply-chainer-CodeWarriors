@@ -5,3 +5,7 @@ __pycache__/
 venv/
 env/
 .env
+# Node dependencies
+node_modules/
+frontend/node_modules_backup_old/
+frontend/node_modules_backup_team2/
