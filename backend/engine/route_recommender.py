@@ -280,4 +280,4 @@ class RouteRecommender:
         elif persona == "SAFEST":
              return f"Resilience-optimized. Path selection reduces risk exposure by {round((1.0 - threat)*100)}% by bypassing volatile corridors. Lead-time integrity prioritized over cost."
         else:
-             return f"Economic-optimized. Multimodal balance reduces total landed cost by {round(cost*0.15)}% vs premium express AIR, while maintaining defensible lead times."
+             return f"Economic-optimized. Multimodal balance has a total landed cost of {round(cost, 2)}, while maintaining defensible lead times."
