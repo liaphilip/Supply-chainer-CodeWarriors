@@ -19,36 +19,70 @@ export default function SupplierIntelligence({ onNavigate }) {
     const fetchScenarios = async () => {
       try {
         const res = await fetch('/api/scenarios');
+
+        if (!res.ok) {
+          throw new Error(`Scenario request failed: ${res.status}`);
+        }
+
         const data = await res.json();
+
+        if (!Array.isArray(data)) {
+          throw new Error('Invalid scenario response.');
+        }
+
         setScenarios(data);
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error('Failed to load scenarios:', e);
+        setScenarios([]);
+      }
     };
+
     fetchScenarios();
   }, []);
-
-  useEffect(() => {
-    fetchSourcingData();
-  }, [category, scenario, inventory, safetyStock, forecast]);
-
+  
   const fetchSourcingData = async () => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/suppliers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          category,
-          current_inventory: inventory,
-          safety_stock: safetyStock,
-          demand_forecast: forecast,
-          scenario
-        })
-      });
-      const data = await res.json();
-      setSuppliers(data.suppliers);
-      setAdvice(data.advice);
-    } catch (e) { console.error(e); }
+  setLoading(true);
+
+  try {
+    const res = await fetch('/api/suppliers', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        category,
+        current_inventory: inventory,
+        safety_stock: safetyStock,
+        demand_forecast: forecast,
+        scenario: scenario || null
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(
+        data.detail ||
+        data.error ||
+        `Supplier request failed: ${res.status}`
+      );
+    }
+
+    if (!Array.isArray(data.suppliers)) {
+      throw new Error(
+        'Supplier engine returned an invalid response.'
+      );
+    }
+
+    setSuppliers(data.suppliers);
+    setAdvice(data.advice || null);
+  } catch (err) {
+    console.error('Supplier request failed:', err);
+    setSuppliers([]);
+    setAdvice(null);
+  } finally {
     setLoading(false);
+  }
   };
 
   return (
@@ -78,13 +112,28 @@ export default function SupplierIntelligence({ onNavigate }) {
           </select>
         </div>
 
-        <div className="sc-input-group">
-          <label className="sc-label">Inventory State (Units)</label>
-          <div className="sc-select-grid">
-            <input type="number" value={inventory} onChange={e => setInventory(parseInt(e.target.value))} className="sc-input" style={{paddingLeft: '1rem'}} placeholder="Inventory" />
-            <input type="number" value={safetyStock} onChange={e => setSafetyStock(parseInt(e.target.value))} className="sc-input" style={{paddingLeft: '1rem'}} placeholder="Safety Target" />
+      <div className="sc-input-group">
+        <label className="sc-label">Inventory State (Units)</label>
+        <div className="sc-select-grid">
+          <input
+            type="number"
+            value={inventory}
+            onChange={e => setInventory(e.target.value === '' ? '' : Number(e.target.value))}
+            className="sc-input"
+            style={{paddingLeft: '1rem'}}
+            placeholder="Inventory"
+          />
+
+          <input
+            type="number"
+            value={safetyStock}
+            onChange={e => setSafetyStock(e.target.value === '' ? '' : Number(e.target.value))}
+            className="sc-input"
+            style={{paddingLeft: '1rem'}}
+            placeholder="Safety Target"
+          />
           </div>
-        </div>
+      </div>
 
         <div className="sc-input-group">
           <label className="sc-label">Global Disruption</label>
@@ -92,6 +141,22 @@ export default function SupplierIntelligence({ onNavigate }) {
             <option value="">Operational Normal</option>
             {scenarios.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
+        </div>
+        <div className="sc-input-group" style={{display: 'flex', alignItems: 'flex-end'}}>
+          <button
+            className="sc-badge-active"
+            onClick={fetchSourcingData}
+            disabled={loading}
+            style={{
+              cursor: loading ? 'not-allowed' : 'pointer',
+              borderColor: '#8b5cf6',
+              color: '#8b5cf6',
+              width: '100%',
+              minHeight: '42px'
+            }}
+          >
+            {loading ? 'Analyzing...' : 'Analyze Suppliers'}
+          </button>
         </div>
       </div>
 
@@ -125,7 +190,7 @@ export default function SupplierIntelligence({ onNavigate }) {
               <thead>
                 <tr style={{borderBottom: '1px solid #1e293b', textAlign: 'left'}}>
                   <th style={{padding: '16px', color: '#94a3b8'}}>Supplier</th>
-                  <th style={{padding: '16px', color: '#94a3b8'}}>Risk Score</th>
+                  <th style={{padding: '16px', color: '#94a3b8'}}>Risk Proxy</th>
                   <th style={{padding: '16px', color: '#94a3b8'}}>Effective Lead Time</th>
                   <th style={{padding: '16px', color: '#94a3b8'}}>Decision Score</th>
                 </tr>

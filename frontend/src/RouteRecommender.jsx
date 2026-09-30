@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect ,useRef} from 'react';
 import { 
   Truck, Ship, Plane, Train, 
   AlertTriangle, ShieldCheck, Clock, DollarSign, 
@@ -16,50 +16,113 @@ const RouteRecommender = ({ onNavigate }) => {
   const [cargoType, setCargoType] = useState('general');
   const [priority, setPriority] = useState('normal');
   const [recommendations, setRecommendations] = useState([]);
+  useEffect(() => {
+  setRecommendations([]);
+  setError(null);
+  }, [transportMode, routingPolicy, operationalConfig]);
+  
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searchQuery, setSearchQuery] = useState({ source: '', dest: '' });
   const [searchResults, setSearchResults] = useState({ source: [], dest: [] });
   const [scenarios, setScenarios] = useState([]);
+  const searchTimers = useRef({
+  source: null,
+  dest: null
+  });
+
+  const searchRequestIds = useRef({
+    source: 0,
+    dest: 0
+  });
 
   useEffect(() => {
-    // Pull the live scenario list from the backend instead of hardcoding IDs here,
-    // so this dropdown can never drift out of sync with ScenarioManager.SCENARIOS again.
-    fetch('/api/scenarios')
-      .then(r => r.json())
-      .then(data => setScenarios(data))
-      .catch(e => console.error("Failed to load scenarios", e));
+  const loadScenarios = async () => {
+    try {
+      const res = await fetch('/api/scenarios');
+
+      if (!res.ok) {
+        throw new Error(`Scenario request failed: ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      setScenarios(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load scenarios:', err);
+      setScenarios([]);
+      setError('Unable to load disruption scenarios.');
+    }
+  };
+
+  loadScenarios();
   }, []);
 
   const getRecommendations = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch('/api/recommend', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          source,
-          destination,
-          transport_preference: transportMode,
-          routing_policy: routingPolicy,
-          cargo_type: cargoType,
-          priority: priority,
-          scenario: operationalConfig !== 'NORMAL' ? operationalConfig : null
-        })
-      });
-      const data = await res.json();
-      if (data.error) {
-        setError(data.error);
-        setRecommendations([]);
-      } else {
-        setRecommendations(data.recommendations);
-      }
-    } catch (err) {
-      setError("Engine connection failed. Verify backend status.");
-    } finally {
-      setLoading(false);
+  if (!source || !destination) {
+    setError('Please select both a source and destination.');
+    return;
+  }
+
+  if (source === destination) {
+    setError('Source and destination must be different.');
+    return;
+  }
+
+  setLoading(true);
+  setError('');
+  setRecommendations([]);
+
+  try {
+    const res = await fetch('/api/recommend', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        source,
+        destination,
+        transport_preference: transportMode,
+        routing_policy: routingPolicy,
+        cargo_type: cargoType,
+        priority,
+        budget_sensitivity: 'medium',
+        scenario: operationalConfig !== 'NORMAL'
+          ? operationalConfig
+          : null,
+        overrides: {}
+      })
+    });
+
+    const data = await res.json().catch(() => ({}));
+
+    if (!res.ok) {
+      throw new Error(
+        data.detail ||
+        data.error ||
+        `Recommendation request failed: ${res.status}`
+      );
     }
+
+    if (data.error) {
+      setError(data.error);
+      return;
+    }
+
+    if (!Array.isArray(data.recommendations)) {
+      throw new Error(
+        'Recommendation engine returned an invalid response.'
+      );
+    }
+
+    setRecommendations(data.recommendations);
+  } catch (err) {
+    console.error('Recommendation request failed:', err);
+    setRecommendations([]);
+    setError(err.message || 'Unable to generate recommendations.');
+  } finally {
+    setLoading(false);
+  }
   };
 
   const getModeIcon = (mode) => {
@@ -73,18 +136,63 @@ const RouteRecommender = ({ onNavigate }) => {
     }
   };
 
-  const handleSearch = async (type, query) => {
-    setSearchQuery(prev => ({ ...prev, [type]: query }));
-    if (query.length < 2) {
-      setSearchResults(prev => ({ ...prev, [type]: [] }));
-      return;
-    }
+  const handleSearch = (type, query) => {
+  setSearchQuery(prev => ({
+    ...prev,
+    [type]: query
+  }));
+
+  if (searchTimers.current[type]) {
+    clearTimeout(searchTimers.current[type]);
+  }
+
+  if (query.trim().length < 2) {
+    searchRequestIds.current[type] += 1;
+
+    setSearchResults(prev => ({
+      ...prev,
+      [type]: []
+    }));
+
+    return;
+  }
+
+  const requestId = ++searchRequestIds.current[type];
+
+  searchTimers.current[type] = setTimeout(async () => {
     try {
-      const res = await fetch(`/api/hubs/search?q=${query}`);
+      const res = await fetch(
+        `/api/hubs/search?q=${encodeURIComponent(query.trim())}`
+      );
+
+      if (!res.ok) {
+        throw new Error(`Hub search failed: ${res.status}`);
+      }
+
       const data = await res.json();
-      setSearchResults(prev => ({ ...prev, [type]: data }));
-    } catch (err) { console.error("Search failed"); }
-  };
+
+      if (requestId !== searchRequestIds.current[type]) {
+        return;
+      }
+
+      setSearchResults(prev => ({
+        ...prev,
+        [type]: Array.isArray(data) ? data : []
+      }));
+    } catch (err) {
+      if (requestId !== searchRequestIds.current[type]) {
+        return;
+      }
+
+      console.warn('Hub search failed:', err);
+
+      setSearchResults(prev => ({
+        ...prev,
+        [type]: []
+      }));
+    }
+  }, 300);
+};
 
   const selectHub = (type, hub) => {
     if (type === 'source') {
