@@ -109,8 +109,11 @@ class RouteRecommender:
                     base_c = d.get("cost", 0)
                     
                     # Intelligence Factor (Mapped to physical node)
+                    u_data = G_p.nodes[u]
                     v_data = G_p.nodes[v]
-                    p_id = v_data.get("physical_id")
+
+                    u_pid = u_data.get("physical_id", u)
+                    p_id = v_data.get("physical_id", v)
                     
                     threat = d.get("base_threat", 0.05)
                     delay = 0
@@ -118,18 +121,32 @@ class RouteRecommender:
                     if p_id in disruptions:
                         threat = max(threat, disruptions[p_id]["threat"])
                         delay += disruptions[p_id]["delay"]
+                    ml_pred = self.predictor.predict_worst_case_delay(
+                    origin=u_pid,
+                    destination=p_id,
+                    transport_mode=mode,
+                    nlp_score=threat
+                    )
+
+                    ml_p85_delay = ml_pred.get("p85_delay", 0.0)
+
+                    risk_adjusted_time = base_t + delay + ml_p85_delay
                     
                     if persona == "FASTEST":
-                        return base_t + delay
+                        return risk_adjusted_time
                     elif persona == "SAFEST":
                         risk_penalty = 1.0 + (threat * 12.0)
-                        return (base_t + delay) * risk_penalty
+                        return risk_adjusted_time * risk_penalty
                     else: # BALANCED (ECONOMIC leaning)
-                        # High cost penalty for transfers and expensive modes
+                        # High cost penalty for transfers and expensive modespython test_ml_engine.py
                         time_weight = 0.3
                         cost_weight = 0.5
                         risk_weight = 0.2
-                        return (base_t + delay)*time_weight + (base_c / 150.0)*cost_weight + (threat * 40.0)*risk_weight
+                        return (
+                        risk_adjusted_time * time_weight
+                        + (base_c / 150.0) * cost_weight
+                        + (threat * 40.0) * risk_weight
+                        )
 
                 path = nx.dijkstra_path(G_p, s_vnode, d_vnode, weight=weight_func)
                 
