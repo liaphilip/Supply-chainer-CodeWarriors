@@ -26,15 +26,18 @@ export default function App() {
     }
   };
 
-  ws.onerror = () => {
-    console.warn('Live status connection unavailable');
-  };
+  ws.onerror = () => {};
 
-  ws.onclose = () => {
-    console.warn('Live status connection closed');
-  };
+ws.onclose = () => {};
 
-  return () => ws.close();
+return () => {
+  if (
+    ws.readyState === WebSocket.OPEN ||
+    ws.readyState === WebSocket.CONNECTING
+  ) {
+    ws.close();
+  }
+};
 }, []);
 
   if (currentView === 'recommend') {
